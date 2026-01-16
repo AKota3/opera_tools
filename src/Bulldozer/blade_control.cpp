@@ -10,7 +10,7 @@ BulldozerBladeControl::BulldozerBladeControl()
 {
   // ---- parameters ----
   command_topic_      = this->declare_parameter<std::string>("command_topic", "blade_cmd");
-  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "joint_states");
+  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "joint_state");
   tolerance_          = this->declare_parameter<double>("tolerance", 0.02);
   timeout_sec_        = this->declare_parameter<double>("timeout_sec", 15.0);
   loop_hz_            = this->declare_parameter<double>("loop_hz", 20.0);
