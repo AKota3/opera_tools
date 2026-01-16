@@ -1,7 +1,5 @@
-// d37pxi_24_blade_control.hpp
-
-#ifndef D37PXI24_BLADE_CONTROL_HPP
-#define D37PXI24_BLADE_CONTROL_HPP
+#ifndef BULLDOZER_BLADE_CONTROL_HPP
+#define BULLDOZER_BLADE_CONTROL_HPP
 
 #include <memory>
 #include <thread>
@@ -17,16 +15,15 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "com3_msgs/msg/joint_cmd.hpp"
 
-// include は action 生成先に合わせてください
 #include "tms_msg_rp/action/tms_rp_bulldozer_blade.hpp"
 
-class D37PXI24BladeControl : public rclcpp::Node
+class BulldozerBladeControl : public rclcpp::Node
 {
 public:
   using BladeAction = tms_msg_rp::action::TmsRpBulldozerBlade;
   using GoalHandle  = rclcpp_action::ServerGoalHandle<BladeAction>;
 
-  D37PXI24BladeControl();
+  BulldozerBladeControl();
 
 private:
   rclcpp_action::Server<BladeAction>::SharedPtr action_server_;

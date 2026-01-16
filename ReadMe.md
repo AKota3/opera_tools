@@ -22,7 +22,7 @@ vessel_control：動作検証済（OperaSim-PhysX）
 
 ・swing_control：動作検証未実施
 
-```ros2 action send_goal /set_vessel_angle tms_msg_rp/action/TmsRpCrawlerDumpDumpAngle "{target_angle: -1.0, control_type: 0, velocity: 0.01, effort: 0.0}"```
+```ros2 action send_goal /set_dump_angle tms_msg_rp/action/TmsRpCrawlerDumpDumpAngle "{target_angle: -1.0, control_type: 0, velocity: 0.01, effort: 0.0}"```
 
 
 *Bulldozer*

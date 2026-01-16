@@ -9,9 +9,9 @@ VesselControl::VesselControl()
 : rclcpp::Node("tms_if_crawlerdump_vessel_node")
 {
   // ---- parameters ----
-  command_topic_      = this->declare_parameter<std::string>("command_topic", "/mst110cr/rot_dump_cmd");
-  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "/mst110cr/joint_states");
-  controlled_joint_   = this->declare_parameter<std::string>("controlled_joint", "vessel_joint");
+  command_topic_      = this->declare_parameter<std::string>("command_topic", "rot_dump_cmd");
+  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "joint_states");
+  controlled_joint_   = this->declare_parameter<std::string>("controlled_joint", "dump_joint");
 
   tolerance_rad_ = this->declare_parameter<double>("tolerance_rad", 0.05);
   timeout_sec_   = this->declare_parameter<double>("timeout_sec", 30.0);
@@ -28,7 +28,7 @@ VesselControl::VesselControl()
   // ---- action server ----
   action_server_ = rclcpp_action::create_server<VesselAction>(
     this,
-    "set_vessel_angle",
+    "set_dump_angle",
     std::bind(&VesselControl::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
     std::bind(&VesselControl::handle_cancel, this, std::placeholders::_1),
     std::bind(&VesselControl::handle_accepted, this, std::placeholders::_1));

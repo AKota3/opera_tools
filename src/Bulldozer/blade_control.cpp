@@ -1,5 +1,3 @@
-// d37pxi_24_blade_control.cpp
-
 #include "opera_tools/Bulldozer/blade_control.hpp"
 
 #include <cmath>
@@ -7,12 +5,12 @@
 
 using namespace std::chrono_literals;
 
-D37PXI24BladeControl::D37PXI24BladeControl()
-: rclcpp::Node("d37pxi_24_blade_control_node")
+BulldozerBladeControl::BulldozerBladeControl()
+: rclcpp::Node("bulldozer_blade_control_node")
 {
   // ---- parameters ----
-  command_topic_      = this->declare_parameter<std::string>("command_topic", "/d37pxi_24/blade_cmd");
-  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "/d37pxi_24/joint_states");
+  command_topic_      = this->declare_parameter<std::string>("command_topic", "blade_cmd");
+  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "joint_states");
   tolerance_          = this->declare_parameter<double>("tolerance", 0.02);
   timeout_sec_        = this->declare_parameter<double>("timeout_sec", 15.0);
   loop_hz_            = this->declare_parameter<double>("loop_hz", 20.0);
@@ -23,22 +21,22 @@ D37PXI24BladeControl::D37PXI24BladeControl()
 
   joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
     joint_states_topic_, rclcpp::QoS(50).best_effort(),
-    std::bind(&D37PXI24BladeControl::joint_state_callback, this, std::placeholders::_1));
+    std::bind(&BulldozerBladeControl::joint_state_callback, this, std::placeholders::_1));
 
   // ---- action server ----
   action_server_ = rclcpp_action::create_server<BladeAction>(
     this,
-    "set_d37pxi_blade",
-    std::bind(&D37PXI24BladeControl::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
-    std::bind(&D37PXI24BladeControl::handle_cancel, this, std::placeholders::_1),
-    std::bind(&D37PXI24BladeControl::handle_accepted, this, std::placeholders::_1));
+    "set_bulldozer_blade",
+    std::bind(&BulldozerBladeControl::handle_goal, this, std::placeholders::_1, std::placeholders::_2),
+    std::bind(&BulldozerBladeControl::handle_cancel, this, std::placeholders::_1),
+    std::bind(&BulldozerBladeControl::handle_accepted, this, std::placeholders::_1));
 
-  RCLCPP_INFO(this->get_logger(), "D37PXI24BladeControl started.");
+  RCLCPP_INFO(this->get_logger(), "BulldozerBladeControl started.");
   RCLCPP_INFO(this->get_logger(), " command_topic: %s", command_topic_.c_str());
   RCLCPP_INFO(this->get_logger(), " joint_states_topic: %s", joint_states_topic_.c_str());
 }
 
-rclcpp_action::GoalResponse D37PXI24BladeControl::handle_goal(
+rclcpp_action::GoalResponse BulldozerBladeControl::handle_goal(
   const rclcpp_action::GoalUUID& /*uuid*/,
   std::shared_ptr<const BladeAction::Goal> goal)
 {
@@ -93,19 +91,19 @@ rclcpp_action::GoalResponse D37PXI24BladeControl::handle_goal(
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
-rclcpp_action::CancelResponse D37PXI24BladeControl::handle_cancel(
+rclcpp_action::CancelResponse BulldozerBladeControl::handle_cancel(
   const std::shared_ptr<GoalHandle> /*goal_handle*/)
 {
   RCLCPP_INFO(this->get_logger(), "Cancel requested");
   return rclcpp_action::CancelResponse::ACCEPT;
 }
 
-void D37PXI24BladeControl::handle_accepted(const std::shared_ptr<GoalHandle> goal_handle)
+void BulldozerBladeControl::handle_accepted(const std::shared_ptr<GoalHandle> goal_handle)
 {
-  std::thread{std::bind(&D37PXI24BladeControl::execute, this, std::placeholders::_1), goal_handle}.detach();
+  std::thread{std::bind(&BulldozerBladeControl::execute, this, std::placeholders::_1), goal_handle}.detach();
 }
 
-void D37PXI24BladeControl::joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
+void BulldozerBladeControl::joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
   if (!msg) return;
 
@@ -118,7 +116,7 @@ void D37PXI24BladeControl::joint_state_callback(const sensor_msgs::msg::JointSta
   }
 }
 
-void D37PXI24BladeControl::execute(const std::shared_ptr<GoalHandle> goal_handle)
+void BulldozerBladeControl::execute(const std::shared_ptr<GoalHandle> goal_handle)
 {
   auto result = std::make_shared<BladeAction::Result>();
   const auto goal = goal_handle->get_goal();
@@ -212,7 +210,7 @@ void D37PXI24BladeControl::execute(const std::shared_ptr<GoalHandle> goal_handle
 int main(int argc, char* argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<D37PXI24BladeControl>());
+  rclcpp::spin(std::make_shared<BulldozerBladeControl>());
   rclcpp::shutdown();
   return 0;
 }
