@@ -1,26 +1,61 @@
 cmake_minimum_required(VERSION 3.8)
 project(opera_tools)
 
+option(BUILD_TESTING "Build tests" ON)
+set(CMAKE_BUILD_TYPE Debug)
+
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_PREFIX_PATH /usr/local/lib)
+
 # find dependencies
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(com3_msgs REQUIRED)
+find_package(tms_msg_rp REQUIRED)
 
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
-  set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
+# Subtask Nodes for CrawlerDump
+add_executable(blade_control src/Bulldozer/blade_control.cpp)
+add_executable(swing_control src/CrawlerDump/swing_control.cpp)
+add_executable(vessel_control src/CrawlerDump/vessel_control.cpp)
+
+set(TARGETS
+  blade_control
+  swing_control
+  vessel_control
+)
+
+set(dependencies_cpp
+  rclcpp
+  rclcpp_action
+  std_msgs
+  com3_msgs
+  sensor_msgs
+  tms_msg_rp
+)
+
+foreach(target IN LISTS TARGETS)
+  target_include_directories(${target} PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+  target_link_directories(${target} PUBLIC /usr/local/lib)
+
+  ament_target_dependencies(${target} ${dependencies_cpp})
+endforeach()
+
+install(TARGETS ${TARGETS}
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY include/
+  DESTINATION include
+)
 
 ament_package()
