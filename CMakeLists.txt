@@ -24,11 +24,13 @@ find_package(tms_msg_rp REQUIRED)
 add_executable(blade_control src/Bulldozer/blade_control.cpp)
 add_executable(swing_control src/CrawlerDump/swing_control.cpp)
 add_executable(vessel_control src/CrawlerDump/vessel_control.cpp)
+add_executable(vessel_control_updown src/CrawlerDump/vessel_control_updown.cpp)
 
 set(TARGETS
   blade_control
   swing_control
   vessel_control
+  vessel_control_updown
 )
 
 set(dependencies_cpp

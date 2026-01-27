@@ -25,10 +25,28 @@ def generate_launch_description():
             {'use_sim_time': LaunchConfiguration('use_sim_time')}
         ])
     
-    crawlerdump_vessel_control_node = Node(
+    # ベッセル角を指定した角度へ
+    # crawlerdump_vessel_control_node = Node(
+    #     package='opera_tools',
+    #     executable='vessel_control',
+    #     namespace=LaunchConfiguration('robot_name'),
+    #     parameters=[
+    #         {'use_sim_time': LaunchConfiguration('use_sim_time')}
+    #     ])
+
+    # ベッセル角を指定した角度へ動かして、3秒経過後0度に戻す
+    crawlerdump_vessel_updown_control_node = Node(
         package='opera_tools',
-        executable='vessel_control',
+        executable='vessel_control_updown',
         namespace=LaunchConfiguration('robot_name'),
+        parameters=[
+            {'use_sim_time': LaunchConfiguration('use_sim_time')}
+        ])
+
+    crawlerdump_vessel_updown_control_node_2 = Node(
+        package='opera_tools',
+        executable='vessel_control_updown',
+        namespace='mst110cr_2',
         parameters=[
             {'use_sim_time': LaunchConfiguration('use_sim_time')}
         ])
@@ -40,7 +58,9 @@ def generate_launch_description():
         declare_robot_name_arg,
 
         crawlerdump_swing_control_node,
-        crawlerdump_vessel_control_node
+        # crawlerdump_vessel_control_node,
+        crawlerdump_vessel_updown_control_node,
+        crawlerdump_vessel_updown_control_node_2
     ])
 
     return ld
