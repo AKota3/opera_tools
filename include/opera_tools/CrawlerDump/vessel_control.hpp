@@ -14,11 +14,13 @@
 #include "com3_msgs/msg/joint_cmd.hpp"
 
 #include "tms_msg_rp/action/tms_rp_crawler_dump_dump_angle.hpp"
+#include "com3_msgs/action/set_dump_angle.hpp"
 
 class VesselControl : public rclcpp::Node
 {
 public:
-  using VesselAction = tms_msg_rp::action::TmsRpCrawlerDumpDumpAngle;
+  //using VesselAction = tms_msg_rp::action::TmsRpCrawlerDumpDumpAngle;
+  using VesselAction = com3_msgs::action::SetDumpAngle;
   using GoalHandle  = rclcpp_action::ServerGoalHandle<VesselAction>;
 
   VesselControl();
@@ -50,6 +52,7 @@ private:
   std::string command_topic_;
   std::string joint_states_topic_;
   std::string controlled_joint_;
+  std::string control_type_;
   double tolerance_rad_;
   double timeout_sec_;
   double loop_hz_;

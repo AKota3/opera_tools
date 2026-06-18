@@ -7,7 +7,7 @@
 using namespace std::chrono_literals;
 
 VesselControl::VesselControl()
-: rclcpp::Node("tms_if_crawlerdump_vessel_node")
+: rclcpp::Node("tms_if_crawlerdump_vessel_node_up_down_for_sim")
 {
   // ---- parameters ----
   command_topic_      = this->declare_parameter<std::string>("command_topic", "rot_dump_cmd");
@@ -54,19 +54,19 @@ rclcpp_action::GoalResponse VesselControl::handle_goal(
     return rclcpp_action::GoalResponse::REJECT;
   }
 
-  if (goal->control_type > 2) {
-    RCLCPP_WARN(this->get_logger(), "Reject goal: control_type is invalid (%u)", goal->control_type);
-    return rclcpp_action::GoalResponse::REJECT;
-  }
+  // if (goal->control_type > 2) {
+  //   RCLCPP_WARN(this->get_logger(), "Reject goal: control_type is invalid (%u)", goal->control_type);
+  //   return rclcpp_action::GoalResponse::REJECT;
+  // }
 
-  if (goal->control_type == 1 && !std::isfinite(goal->velocity)) {
-    RCLCPP_WARN(this->get_logger(), "Reject goal: velocity is not finite (control_type=1)");
-    return rclcpp_action::GoalResponse::REJECT;
-  }
-  if (goal->control_type == 2 && !std::isfinite(goal->effort)) {
-    RCLCPP_WARN(this->get_logger(), "Reject goal: effort is not finite (control_type=2)");
-    return rclcpp_action::GoalResponse::REJECT;
-  }
+  // if (goal->control_type == 1 && !std::isfinite(goal->velocity)) {
+  //   RCLCPP_WARN(this->get_logger(), "Reject goal: velocity is not finite (control_type=1)");
+  //   return rclcpp_action::GoalResponse::REJECT;
+  // }
+  // if (goal->control_type == 2 && !std::isfinite(goal->effort)) {
+  //   RCLCPP_WARN(this->get_logger(), "Reject goal: effort is not finite (control_type=2)");
+  //   return rclcpp_action::GoalResponse::REJECT;
+  // }
 
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
@@ -106,7 +106,8 @@ void VesselControl::execute(const std::shared_ptr<GoalHandle> goal_handle)
   const auto goal = goal_handle->get_goal();
 
   const double target_angle  = goal->target_angle;
-  const uint8_t control_type = goal->control_type;
+  //const uint8_t control_type = goal->control_type;
+  const uint8_t control_type = 0;
 
   // 目標角へ上げる用コマンド（ゴール指定通り）
   com3_msgs::msg::JointCmd cmd;
@@ -116,13 +117,14 @@ void VesselControl::execute(const std::shared_ptr<GoalHandle> goal_handle)
   cmd.velocity = {-1.0};
   cmd.effort   = {-1.0};
 
-  if (control_type == 0) {
-    cmd.position = {target_angle};
-  } else if (control_type == 1) {
-    cmd.velocity = {goal->velocity};
-  } else {
-    cmd.effort = {goal->effort};
-  }
+  // if (control_type == 0) {
+  //   cmd.position = {target_angle};
+  // } else if (control_type == 1) {
+  //   cmd.velocity = {goal->velocity};
+  // } else {
+  //   cmd.effort = {goal->effort};
+  // }
+  cmd.position = {target_angle};
 
   enum class Phase { MOVE_TO_TARGET, HOLD_AFTER_REACHED, RETURN_TO_ZERO };
   Phase phase = Phase::MOVE_TO_TARGET;
