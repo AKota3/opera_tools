@@ -10,8 +10,8 @@ BulldozerBladeControl::BulldozerBladeControl()
 {
   // ---- parameters ----
   command_topic_      = this->declare_parameter<std::string>("command_topic", "blade_cmd");
-  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "joint_state");
-  tolerance_          = this->declare_parameter<double>("tolerance", 0.02);
+  joint_states_topic_ = this->declare_parameter<std::string>("joint_states_topic", "joint_states");
+  tolerance_          = this->declare_parameter<double>("tolerance", 0.15);
   timeout_sec_        = this->declare_parameter<double>("timeout_sec", 15.0);
   loop_hz_            = this->declare_parameter<double>("loop_hz", 20.0);
 
@@ -166,10 +166,13 @@ void BulldozerBladeControl::execute(const std::shared_ptr<GoalHandle> goal_handl
       for (size_t i = 0; i < n; ++i) {
         auto it = latest_pos_.find(joints[i]);
         if (it == latest_pos_.end()) {
+          RCLCPP_WARN(this->get_logger(), "Joint NOT FOUND: %s", joints[i].c_str());
           all_seen = false;
           continue;
         }
         err[i] = gp[i] - it->second;
+
+        RCLCPP_INFO(this->get_logger(), "joint=%s current=%.6f target=%.6f error=%.6f", joints[i].c_str(), it->second, gp[i], err[i]);
       }
     }
 
