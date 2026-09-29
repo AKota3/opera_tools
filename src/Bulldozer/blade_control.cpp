@@ -649,20 +649,20 @@ void BulldozerBladeControl::execute(
           this->get_logger(),
           "Blade target reached.");
 
-        // ======================================================
+        // ==========================================================
         // blade_hold=true
         //
-        // command_interface_name に応じて保持コマンドを設定する。
+        // 到達後も保持する。
         //
         // position:
-        //   goal_position をそのまま送信し続ける。
+        //   goal_positionを継続送信
         //
         // velocity:
-        //   0, 0, 0 を送信し続ける。
+        //   velocity = 0 を継続送信
         //
         // effort:
-        //   0, 0, 0 を送信し続ける。
-        // ======================================================
+        //   effort = 0 を継続送信
+        // ==========================================================
         if (blade_hold)
         {
           {
@@ -670,44 +670,30 @@ void BulldozerBladeControl::execute(
 
             hold_cmd_ = cmd;
 
+            hold_cmd_.joint_name = joints;
+            hold_cmd_.control_type = ct;
+
             if (ct == 0)
             {
-              // --------------------------------------------------
               // position control
-              // --------------------------------------------------
-              // 目標姿勢をそのまま保持する
               hold_cmd_.position = gp;
-
-              // velocity / effort は0
               hold_cmd_.velocity.assign(n, 0.0);
               hold_cmd_.effort.assign(n, 0.0);
             }
             else if (ct == 1)
             {
-              // --------------------------------------------------
               // velocity control
-              // --------------------------------------------------
-              // 目標到達後は速度0で停止する
               hold_cmd_.position.assign(n, 0.0);
               hold_cmd_.velocity.assign(n, 0.0);
               hold_cmd_.effort.assign(n, 0.0);
             }
             else if (ct == 2)
             {
-              // --------------------------------------------------
               // effort control
-              // --------------------------------------------------
-              // 目標到達後はeffort 0にする
               hold_cmd_.position.assign(n, 0.0);
               hold_cmd_.velocity.assign(n, 0.0);
               hold_cmd_.effort.assign(n, 0.0);
             }
-
-            // control_typeは現在の制御方式を維持
-            hold_cmd_.control_type = ct;
-
-            // joint_nameも維持
-            hold_cmd_.joint_name = joints;
 
             blade_hold_active_ = true;
           }
@@ -725,34 +711,137 @@ void BulldozerBladeControl::execute(
           return;
         }
 
-
-        // ======================================================
+        // ==========================================================
         // blade_hold=false
         //
-        // 目標到達後、JointCmdの送信を停止する。
-        // ======================================================
-        else
-        {
-          {
-            std::lock_guard<std::mutex> lk(hold_mtx_);
+        // 目標到達後、停止指令を数回送信してから終了する。
+        //
+        // velocity:
+        //   velocity = 0
+        //
+        // effort:
+        //   effort = 0
+        //
+        // position:
+        //   goal_position
+        //
+        // これにより、Action終了直後に最後の速度/effort指令が
+        // 残ったままになることを防ぐ。
+        // ==========================================================
 
-            blade_hold_active_ =
-              false;
+        constexpr int stop_publish_count = 3;
+
+        RCLCPP_INFO(
+          this->get_logger(),
+          "Blade target reached. "
+          "Publishing final command %d times before finishing.",
+          stop_publish_count);
+
+        for (int count = 0;
+            count < stop_publish_count;
+            ++count)
+        {
+          // --------------------------------------------------------
+          // cancelされた場合
+          // --------------------------------------------------------
+          if (goal_handle->is_canceling())
+          {
+            {
+              std::lock_guard<std::mutex> lk(hold_mtx_);
+              blade_hold_active_ = false;
+            }
+
+            result->success = false;
+
+            goal_handle->canceled(result);
+
+            RCLCPP_INFO(
+              this->get_logger(),
+              "Blade control canceled during final stop commands.");
+
+            return;
           }
+
+          // --------------------------------------------------------
+          // 最終コマンドを作成
+          // --------------------------------------------------------
+          com3_msgs::msg::JointCmd final_cmd;
+
+          final_cmd.joint_name = joints;
+          final_cmd.control_type = ct;
+
+          final_cmd.position.assign(n, 0.0);
+          final_cmd.velocity.assign(n, 0.0);
+          final_cmd.effort.assign(n, 0.0);
+
+          if (ct == 0)
+          {
+            // ------------------------------------------------------
+            // position control
+            //
+            // positionの場合は目標姿勢をもう一度送る。
+            // ------------------------------------------------------
+            final_cmd.position = gp;
+          }
+          else if (ct == 1)
+          {
+            // ------------------------------------------------------
+            // velocity control
+            //
+            // 停止するためvelocity=0
+            // ------------------------------------------------------
+            final_cmd.velocity.assign(n, 0.0);
+          }
+          else if (ct == 2)
+          {
+            // ------------------------------------------------------
+            // effort control
+            //
+            // 力を解除するためeffort=0
+            // ------------------------------------------------------
+            final_cmd.effort.assign(n, 0.0);
+          }
+
+          // --------------------------------------------------------
+          // publish
+          // --------------------------------------------------------
+          cmd_pub_->publish(final_cmd);
 
           RCLCPP_INFO(
             this->get_logger(),
-            "Blade target reached. "
-            "Blade hold disabled. "
-            "JointCmd publishing stopped.");
+            "Final command %d/%d published: control_type=%u",
+            count + 1,
+            stop_publish_count,
+            static_cast<unsigned int>(ct));
 
-          result->success =
-            true;
-
-          goal_handle->succeed(result);
-
-          return;
+          // --------------------------------------------------------
+          // 次の送信まで待つ
+          // --------------------------------------------------------
+          if (count + 1 < stop_publish_count)
+          {
+            rate.sleep();
+          }
         }
+
+        // ==========================================================
+        // hold状態は無効
+        // ==========================================================
+        {
+          std::lock_guard<std::mutex> lk(hold_mtx_);
+
+          blade_hold_active_ = false;
+        }
+
+        RCLCPP_INFO(
+          this->get_logger(),
+          "Blade final commands published. "
+          "Blade control finished.");
+
+        result->success = true;
+
+        goal_handle->succeed(result);
+
+        return;
       }
     }
 
