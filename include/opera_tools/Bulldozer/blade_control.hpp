@@ -82,6 +82,7 @@ private:
   // ============================================================
   std::string command_topic_;
   std::string joint_states_topic_;
+  std::string control_type_;
 
   double tolerance_{0.02};
   double timeout_sec_{15.0};

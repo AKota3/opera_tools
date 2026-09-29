@@ -32,6 +32,12 @@ BulldozerBladeControl::BulldozerBladeControl()
     this->declare_parameter<double>(
       "loop_hz", 20.0);
 
+
+  control_type_ = this->declare_parameter<std::string>("command_interface_name", "position");
+
+  RCLCPP_INFO(this->get_logger(), "command_interface_name = '%s'", control_type_.c_str());
+
+
   // ============================================================
   // Publisher
   // ============================================================
@@ -126,14 +132,29 @@ BulldozerBladeControl::handle_goal(
     return rclcpp_action::GoalResponse::REJECT;
   }
 
+
+  control_type_ = this->get_parameter("command_interface_name").as_string();
+
+  uint8_t control_type = 0;
+
+  if (control_type_ == "velocity"){// && !std::isfinite(goal->velocity)) {
+    control_type = 1;
+  }
+  else if (control_type_ == "effort"){// && !std::isfinite(goal->effort)) {
+    control_type = 2;
+  }
+  else{
+    control_type = 0;
+  }
+
   // ------------------------------------------------------------
   // control_type
   // ------------------------------------------------------------
-  if (goal->control_type > 2) {
+  if (control_type > 2) {//goal->control_type > 2) {
     RCLCPP_WARN(
       this->get_logger(),
       "Reject: invalid control_type=%u",
-      goal->control_type);
+      control_type);//goal->control_type);
 
     return rclcpp_action::GoalResponse::REJECT;
   }
@@ -166,7 +187,7 @@ BulldozerBladeControl::handle_goal(
   // ------------------------------------------------------------
   // velocity
   // ------------------------------------------------------------
-  if (goal->control_type == 1 &&
+  if (control_type == 1 && //goal->control_type == 1 &&
       goal->velocity.size() != n)
   {
     RCLCPP_WARN(
@@ -180,7 +201,7 @@ BulldozerBladeControl::handle_goal(
   // ------------------------------------------------------------
   // effort
   // ------------------------------------------------------------
-  if (goal->control_type == 2 &&
+  if (control_type == 2 && //goal->control_type == 2 &&
       goal->effort.size() != n)
   {
     RCLCPP_WARN(
@@ -205,7 +226,7 @@ BulldozerBladeControl::handle_goal(
       return rclcpp_action::GoalResponse::REJECT;
     }
 
-    if (goal->control_type == 1 &&
+    if (control_type == 1 && //goal->control_type == 1 &&
         !std::isfinite(goal->velocity[i]))
     {
       RCLCPP_WARN(
@@ -216,7 +237,7 @@ BulldozerBladeControl::handle_goal(
       return rclcpp_action::GoalResponse::REJECT;
     }
 
-    if (goal->control_type == 2 &&
+    if (control_type == 2 && //goal->control_type == 2 &&
         !std::isfinite(goal->effort[i]))
     {
       RCLCPP_WARN(
@@ -332,8 +353,27 @@ void BulldozerBladeControl::execute(
   const auto & gp =
     goal->goal_position;
 
-  const uint8_t ct =
-    goal->control_type;
+  // const uint8_t ct =
+    // control_type // goal->control_type;
+  uint8_t ct = 0;
+
+  if (control_type_ == "velocity") {
+    ct = 1;
+  }
+  else if (control_type_ == "effort") {
+    ct = 2;
+  }
+  else if(control_type_ == "position") {
+    ct = 0;
+  }
+  else {
+  RCLCPP_ERROR(this->get_logger(), "Unknown command_interface_name: '%s'", control_type_.c_str());
+  result->success = false;
+  goal_handle->abort(result);
+  return;
+  }
+
+  RCLCPP_INFO(this->get_logger(), "Using command_interface_name='%s', control_type=%u", control_type_.c_str(), ct);
 
   const bool blade_hold =
     goal->blade_hold;

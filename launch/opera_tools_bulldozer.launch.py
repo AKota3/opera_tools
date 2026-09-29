@@ -17,12 +17,16 @@ def generate_launch_description():
         'robot_name',
         default_value='d37pxi_24')
 
+    declare_command_interface_name = DeclareLaunchArgument(
+        "command_interface_name", default_value="position")
+
     bulldozer_blade_control_node = Node(
         package='opera_tools',
         executable='blade_control',
         namespace=LaunchConfiguration('robot_name'),
         parameters=[
-            {'use_sim_time': LaunchConfiguration('use_sim_time')}
+            {'use_sim_time': LaunchConfiguration('use_sim_time')},
+            {'command_interface_name': LaunchConfiguration('command_interface_name')}
         ])
 
 
@@ -30,6 +34,7 @@ def generate_launch_description():
     ld = LaunchDescription([
         declare_use_sim_time_arg,
         declare_robot_name_arg,
+        declare_command_interface_name,
 
         bulldozer_blade_control_node
     ])
