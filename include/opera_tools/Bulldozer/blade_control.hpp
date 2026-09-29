@@ -84,6 +84,11 @@ private:
   std::string joint_states_topic_;
   std::string control_type_;
 
+  double velocity_kp_;
+  double effort_kp_;
+  double max_velocity_;
+  double max_effort_;
+
   double tolerance_{0.02};
   double timeout_sec_{15.0};
   double loop_hz_{20.0};

@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <chrono>
+#include <algorithm>
 
 using namespace std::chrono_literals;
 
@@ -36,6 +37,15 @@ BulldozerBladeControl::BulldozerBladeControl()
   control_type_ = this->declare_parameter<std::string>("command_interface_name", "position");
 
   RCLCPP_INFO(this->get_logger(), "command_interface_name = '%s'", control_type_.c_str());
+
+
+  velocity_kp_ = this->declare_parameter<double>("velocity_kp", 1.0);
+
+  effort_kp_ = this->declare_parameter<double>("effort_kp", 1.0);
+
+  max_velocity_ = this->declare_parameter<double>("max_velocity", 1.0);
+
+  max_effort_ = this->declare_parameter<double>("max_effort", 1.0);
 
 
   // ============================================================
@@ -132,37 +142,41 @@ BulldozerBladeControl::handle_goal(
     return rclcpp_action::GoalResponse::REJECT;
   }
 
-
-  control_type_ = this->get_parameter("command_interface_name").as_string();
+  // ------------------------------------------------------------
+  // command_interface_name から control_type を決定
+  //
+  // position : 0
+  // velocity : 1
+  // effort   : 2
+  //
+  // ※ Action Goalのcontrol_typeは使用しない
+  // ------------------------------------------------------------
+  control_type_ =
+    this->get_parameter("command_interface_name").as_string();
 
   uint8_t control_type = 0;
 
-  if (control_type_ == "velocity"){// && !std::isfinite(goal->velocity)) {
+  if (control_type_ == "velocity") {
     control_type = 1;
   }
-  else if (control_type_ == "effort"){// && !std::isfinite(goal->effort)) {
+  else if (control_type_ == "effort") {
     control_type = 2;
   }
-  else{
+  else {
     control_type = 0;
   }
 
-  // ------------------------------------------------------------
-  // control_type
-  // ------------------------------------------------------------
-  if (control_type > 2) {//goal->control_type > 2) {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Reject: invalid control_type=%u",
-      control_type);//goal->control_type);
-
-    return rclcpp_action::GoalResponse::REJECT;
-  }
+  RCLCPP_INFO(
+    this->get_logger(),
+    "Received goal: command_interface=%s, control_type=%u",
+    control_type_.c_str(),
+    control_type);
 
   // ------------------------------------------------------------
   // joint_name
   // ------------------------------------------------------------
-  const size_t n = goal->joint_name.size();
+  const size_t n =
+    goal->joint_name.size();
 
   if (n == 0) {
     RCLCPP_WARN(
@@ -174,46 +188,38 @@ BulldozerBladeControl::handle_goal(
 
   // ------------------------------------------------------------
   // goal_position
+  //
+  // すべてのcontrol_typeで必須。
+  //
+  // goal_positionは「最終的な目標角度」を表す。
   // ------------------------------------------------------------
   if (goal->goal_position.size() != n) {
     RCLCPP_WARN(
       this->get_logger(),
-      "Reject: goal_position size mismatch (need %zu)",
-      n);
+      "Reject: goal_position size mismatch "
+      "(joint_name=%zu, goal_position=%zu)",
+      n,
+      goal->goal_position.size());
 
     return rclcpp_action::GoalResponse::REJECT;
   }
 
   // ------------------------------------------------------------
-  // velocity
+  // velocity / effort はチェックしない
+  //
+  // velocity controlの場合でも、
+  // goal->velocity は入力として使用しない。
+  //
+  // effort controlの場合でも、
+  // goal->effort は入力として使用しない。
+  //
+  // どちらもgoal_positionからexecute()内で計算する。
   // ------------------------------------------------------------
-  if (control_type == 1 && //goal->control_type == 1 &&
-      goal->velocity.size() != n)
-  {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Reject: velocity size mismatch (need %zu)",
-      n);
-
-    return rclcpp_action::GoalResponse::REJECT;
-  }
-
-  // ------------------------------------------------------------
-  // effort
-  // ------------------------------------------------------------
-  if (control_type == 2 && //goal->control_type == 2 &&
-      goal->effort.size() != n)
-  {
-    RCLCPP_WARN(
-      this->get_logger(),
-      "Reject: effort size mismatch (need %zu)",
-      n);
-
-    return rclcpp_action::GoalResponse::REJECT;
-  }
 
   // ------------------------------------------------------------
   // finite check
+  //
+  // goal_positionだけチェックすればよい
   // ------------------------------------------------------------
   for (size_t i = 0; i < n; ++i)
   {
@@ -225,30 +231,11 @@ BulldozerBladeControl::handle_goal(
 
       return rclcpp_action::GoalResponse::REJECT;
     }
-
-    if (control_type == 1 && //goal->control_type == 1 &&
-        !std::isfinite(goal->velocity[i]))
-    {
-      RCLCPP_WARN(
-        this->get_logger(),
-        "Reject: velocity[%zu] is not finite",
-        i);
-
-      return rclcpp_action::GoalResponse::REJECT;
-    }
-
-    if (control_type == 2 && //goal->control_type == 2 &&
-        !std::isfinite(goal->effort[i]))
-    {
-      RCLCPP_WARN(
-        this->get_logger(),
-        "Reject: effort[%zu] is not finite",
-        i);
-
-      return rclcpp_action::GoalResponse::REJECT;
-    }
   }
 
+  // ------------------------------------------------------------
+  // blade_hold
+  // ------------------------------------------------------------
   RCLCPP_INFO(
     this->get_logger(),
     "Accept goal: blade_hold=%s",
@@ -354,7 +341,8 @@ void BulldozerBladeControl::execute(
     goal->goal_position;
 
   // const uint8_t ct =
-    // control_type // goal->control_type;
+  //   goal->control_type;
+
   uint8_t ct = 0;
 
   if (control_type_ == "velocity") {
@@ -383,9 +371,6 @@ void BulldozerBladeControl::execute(
 
   // ============================================================
   // 新しいActionが来たら、まず現在の保持状態を解除
-  //
-  // 特に blade_hold=false の場合、
-  // 前回のhold_cmdが送られ続けないようにする。
   // ============================================================
   {
     std::lock_guard<std::mutex> lk(hold_mtx_);
@@ -395,11 +380,16 @@ void BulldozerBladeControl::execute(
 
   RCLCPP_INFO(
     this->get_logger(),
-    "Start blade control: blade_hold=%s",
-    blade_hold ? "true" : "false");
+    "Start blade control: blade_hold=%s, control_type=%u",
+    blade_hold ? "true" : "false",
+    ct);
 
   // ============================================================
   // JointCmd
+  //
+  // control_typeに応じて、
+  // position / velocity / effort のどれかを
+  // 制御ループ内で計算する。
   // ============================================================
   com3_msgs::msg::JointCmd cmd;
 
@@ -421,22 +411,6 @@ void BulldozerBladeControl::execute(
     n,
     0.0);
 
-  if (ct == 0)
-  {
-    cmd.position =
-      gp;
-  }
-  else if (ct == 1)
-  {
-    cmd.velocity =
-      goal->velocity;
-  }
-  else
-  {
-    cmd.effort =
-      goal->effort;
-  }
-
   // ============================================================
   // 制御ループ
   // ============================================================
@@ -452,6 +426,12 @@ void BulldozerBladeControl::execute(
     // ----------------------------------------------------------
     if (goal_handle->is_canceling())
     {
+      {
+        std::lock_guard<std::mutex> lk(hold_mtx_);
+
+        blade_hold_active_ = false;
+      }
+
       result->success = false;
 
       goal_handle->canceled(result);
@@ -463,16 +443,11 @@ void BulldozerBladeControl::execute(
       return;
     }
 
-    // ----------------------------------------------------------
-    // publish command
+    // ==========================================================
+    // 現在角度との差を計算
     //
-    // 目標到達前は通常通りここから送信する。
-    // ----------------------------------------------------------
-    cmd_pub_->publish(cmd);
-
-    // ----------------------------------------------------------
-    // error calculation
-    // ----------------------------------------------------------
+    // goal_position は常に「目標角度」として使用する。
+    // ==========================================================
     std::vector<double> err(
       n,
       0.0);
@@ -500,6 +475,9 @@ void BulldozerBladeControl::execute(
           continue;
         }
 
+        // ------------------------------------------------------
+        // 目標角度 - 現在角度
+        // ------------------------------------------------------
         err[i] =
           gp[i] - it->second;
 
@@ -513,9 +491,130 @@ void BulldozerBladeControl::execute(
       }
     }
 
+    // ==========================================================
+    // control_typeに応じて制御入力を生成
+    //
+    // control_type:
+    //
+    //   0 : Position control
+    //       position = goal_position
+    //
+    //   1 : Velocity control
+    //       velocity = Kp * position_error
+    //
+    //   2 : Effort control
+    //       effort = Kp * position_error
+    //
+    // goal_positionは全ての場合で目標角度として使用する。
+    // ==========================================================
+
     // ----------------------------------------------------------
+    // 一旦すべて0にする
+    // ----------------------------------------------------------
+    cmd.position.assign(
+      n,
+      0.0);
+
+    cmd.velocity.assign(
+      n,
+      0.0);
+
+    cmd.effort.assign(
+      n,
+      0.0);
+
+    // ----------------------------------------------------------
+    // Position control
+    // ----------------------------------------------------------
+    if (ct == 0)
+    {
+      for (size_t i = 0; i < n; ++i)
+      {
+        cmd.position[i] =
+          gp[i];
+      }
+    }
+
+    // ----------------------------------------------------------
+    // Velocity control
+    //
+    // 目標角度との差から速度を生成する。
+    // ----------------------------------------------------------
+    else if (ct == 1)
+    {
+      for (size_t i = 0; i < n; ++i)
+      {
+        double velocity =
+          velocity_kp_ * err[i];
+
+        velocity =
+          std::clamp(
+            velocity,
+            -max_velocity_,
+            max_velocity_);
+
+        cmd.velocity[i] =
+          velocity;
+      }
+    }
+
+    // ----------------------------------------------------------
+    // Effort control
+    //
+    // 目標角度との差からeffortを生成する。
+    // ----------------------------------------------------------
+    else if (ct == 2)
+    {
+      for (size_t i = 0; i < n; ++i)
+      {
+        double effort =
+          effort_kp_ * err[i];
+
+        effort =
+          std::clamp(
+            effort,
+            -max_effort_,
+            max_effort_);
+
+        cmd.effort[i] =
+          effort;
+      }
+    }
+
+    // ----------------------------------------------------------
+    // 不正なcontrol_type
+    // ----------------------------------------------------------
+    else
+    {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Invalid control_type=%u",
+        ct);
+
+      {
+        std::lock_guard<std::mutex> lk(hold_mtx_);
+
+        blade_hold_active_ = false;
+      }
+
+      result->success =
+        false;
+
+      goal_handle->abort(result);
+
+      return;
+    }
+
+    // ==========================================================
+    // JointCmdをpublish
+    //
+    // 目標到達前は、毎周期ここで制御入力を更新して送信する。
+    // ==========================================================
+    cmd_pub_->publish(cmd);
+
+    // ==========================================================
     // feedback
-    // ----------------------------------------------------------
+    // ==========================================================
     auto fb =
       std::make_shared<BladeAction::Feedback>();
 
@@ -524,9 +623,9 @@ void BulldozerBladeControl::execute(
 
     goal_handle->publish_feedback(fb);
 
-    // ----------------------------------------------------------
+    // ==========================================================
     // 到達判定
-    // ----------------------------------------------------------
+    // ==========================================================
     if (all_seen)
     {
       bool ok =
@@ -542,7 +641,7 @@ void BulldozerBladeControl::execute(
       }
 
       // ========================================================
-      // 目標角に到達
+      // 目標角度に到達
       // ========================================================
       if (ok)
       {
@@ -550,44 +649,88 @@ void BulldozerBladeControl::execute(
           this->get_logger(),
           "Blade target reached.");
 
-        // ------------------------------------------------------
+        // ======================================================
         // blade_hold=true
         //
-        // 1. 現在のJointCmdをhold_cmd_として保存
-        // 2. hold状態を有効化
-        // 3. Action successを返す
-        // 4. execute()終了後もTimerが送信し続ける
-        // ------------------------------------------------------
+        // command_interface_name に応じて保持コマンドを設定する。
+        //
+        // position:
+        //   goal_position をそのまま送信し続ける。
+        //
+        // velocity:
+        //   0, 0, 0 を送信し続ける。
+        //
+        // effort:
+        //   0, 0, 0 を送信し続ける。
+        // ======================================================
         if (blade_hold)
         {
           {
             std::lock_guard<std::mutex> lk(hold_mtx_);
 
-            hold_cmd_ =
-              cmd;
+            hold_cmd_ = cmd;
 
-            blade_hold_active_ =
-              true;
+            if (ct == 0)
+            {
+              // --------------------------------------------------
+              // position control
+              // --------------------------------------------------
+              // 目標姿勢をそのまま保持する
+              hold_cmd_.position = gp;
+
+              // velocity / effort は0
+              hold_cmd_.velocity.assign(n, 0.0);
+              hold_cmd_.effort.assign(n, 0.0);
+            }
+            else if (ct == 1)
+            {
+              // --------------------------------------------------
+              // velocity control
+              // --------------------------------------------------
+              // 目標到達後は速度0で停止する
+              hold_cmd_.position.assign(n, 0.0);
+              hold_cmd_.velocity.assign(n, 0.0);
+              hold_cmd_.effort.assign(n, 0.0);
+            }
+            else if (ct == 2)
+            {
+              // --------------------------------------------------
+              // effort control
+              // --------------------------------------------------
+              // 目標到達後はeffort 0にする
+              hold_cmd_.position.assign(n, 0.0);
+              hold_cmd_.velocity.assign(n, 0.0);
+              hold_cmd_.effort.assign(n, 0.0);
+            }
+
+            // control_typeは現在の制御方式を維持
+            hold_cmd_.control_type = ct;
+
+            // joint_nameも維持
+            hold_cmd_.joint_name = joints;
+
+            blade_hold_active_ = true;
           }
 
           RCLCPP_INFO(
             this->get_logger(),
-            "Blade hold enabled. "
-            "JointCmd will continue to be published.");
+            "Blade hold enabled: interface=%s, control_type=%u",
+            control_type_.c_str(),
+            static_cast<unsigned int>(ct));
 
-          result->success =
-            true;
+          result->success = true;
 
           goal_handle->succeed(result);
 
           return;
         }
 
-        // ------------------------------------------------------
+
+        // ======================================================
         // blade_hold=false
         //
-        // 目標到達後にJointCmd送信を終了
-        // ------------------------------------------------------
+        // 目標到達後、JointCmdの送信を停止する。
+        // ======================================================
         else
         {
           {
@@ -613,9 +756,9 @@ void BulldozerBladeControl::execute(
       }
     }
 
-    // ----------------------------------------------------------
+    // ==========================================================
     // timeout
-    // ----------------------------------------------------------
+    // ==========================================================
     if ((this->now() - start).seconds()
         > timeout_sec_)
     {
