@@ -419,6 +419,15 @@ void BulldozerBladeControl::execute(
   const auto start =
     this->now();
 
+  // 動作開始時の関節角度
+  std::vector<double> initial_pos(n, 0.0);
+
+  // 初期角度を取得済みかどうか
+  std::vector<bool> initial_pos_seen(n, false);
+
+  // effort入力で目標角度を通過したかどうか
+  std::vector<bool> effort_reached(n, false);
+
   while (rclcpp::ok())
   {
     // ----------------------------------------------------------
@@ -478,8 +487,44 @@ void BulldozerBladeControl::execute(
         // ------------------------------------------------------
         // 目標角度 - 現在角度
         // ------------------------------------------------------
-        err[i] =
-          gp[i] - it->second;
+        // 現在角度
+        const double current_pos = it->second;
+
+        // 初期角度を記録
+        if (!initial_pos_seen[i])
+        {
+          initial_pos[i] = current_pos;
+          initial_pos_seen[i] = true;
+        }
+
+        // 目標角度 - 現在角度
+        err[i] = gp[i] - current_pos;
+
+        // effort入力の場合、目標角度を通過したか判定
+        if (ct == 2)
+        {
+          if (initial_pos[i] < gp[i])
+          {
+            // 正方向に動作する場合
+            if (current_pos >= gp[i])
+            {
+              effort_reached[i] = true;
+            }
+          }
+          else if (initial_pos[i] > gp[i])
+          {
+            // 負方向に動作する場合
+            if (current_pos <= gp[i])
+            {
+              effort_reached[i] = true;
+            }
+          }
+          else
+          {
+            // 初期角度が目標角度と同じ場合
+            effort_reached[i] = true;
+          }
+        }
 
         RCLCPP_INFO(
           this->get_logger(),
@@ -561,23 +606,39 @@ void BulldozerBladeControl::execute(
     // ----------------------------------------------------------
     // Effort control
     //
-    // 目標角度との差からeffortを生成する。
+    // 目標角度との差に応じてeffortを計算する。
+    // effortの絶対値は50～100の範囲とする。
     // ----------------------------------------------------------
     else if (ct == 2)
     {
       for (size_t i = 0; i < n; ++i)
       {
-        double effort =
-          effort_kp_ * err[i];
+        // 目標角度を通過した関節には追加の制御入力を与えない
+        if (effort_reached[i])
+        {
+          cmd.effort[i] = 0.0;
+          continue;
+        }
 
-        effort =
-          std::clamp(
-            effort,
-            -max_effort_,
-            max_effort_);
+        // 角度誤差に比例してeffortを計算
+        double effort = effort_kp_ * err[i];
 
-        cmd.effort[i] =
-          effort;
+        // 絶対値を50～100に制限
+        if (effort > 0.0)
+        {
+          effort = std::clamp(effort, 50.0, 100.0);
+        }
+        else if (effort < 0.0)
+        {
+          effort = std::clamp(effort, -100.0, -50.0);
+        }
+        else
+        {
+          // 誤差が完全に0の場合
+          effort = 0.0;
+        }
+
+        cmd.effort[i] = effort;
       }
     }
 
@@ -631,12 +692,32 @@ void BulldozerBladeControl::execute(
       bool ok =
         true;
 
-      for (size_t i = 0; i < n; ++i)
+      if (ct == 2)
       {
-        if (std::fabs(err[i]) > tolerance_)
+        // ------------------------------------------------------
+        // effort入力の場合のみ、目標角度の通過を成功条件とする
+        // ------------------------------------------------------
+        for (size_t i = 0; i < n; ++i)
         {
-          ok = false;
-          break;
+          if (!effort_reached[i])
+          {
+            ok = false;
+            break;
+          }
+        }
+      }
+      else
+      {
+        // ------------------------------------------------------
+        // position / velocity入力は従来どおり許容誤差で判定
+        // ------------------------------------------------------
+        for (size_t i = 0; i < n; ++i)
+        {
+          if (std::fabs(err[i]) > tolerance_)
+          {
+            ok = false;
+            break;
+          }
         }
       }
 
@@ -693,6 +774,7 @@ void BulldozerBladeControl::execute(
               hold_cmd_.position.assign(n, 0.0);
               hold_cmd_.velocity.assign(n, 0.0);
               hold_cmd_.effort.assign(n, 0.0);
+              hold_cmd_.effort = cmd.effort;
             }
 
             blade_hold_active_ = true;
