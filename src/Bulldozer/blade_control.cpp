@@ -47,6 +47,9 @@ BulldozerBladeControl::BulldozerBladeControl()
 
   max_effort_ = this->declare_parameter<double>("max_effort", 1.0);
 
+  // angle関節にeffortを指令する時間 [s]
+  angle_effort_duration_sec_ = this->declare_parameter<double>("angle_effort_duration_sec", 3.0);
+
 
   // ============================================================
   // Publisher
@@ -416,8 +419,18 @@ void BulldozerBladeControl::execute(
   // ============================================================
   rclcpp::Rate rate(loop_hz_);
 
-  const auto start =
-    this->now();
+  const auto start = this->now();
+
+  // angle関節のeffort指令開始時刻
+  // Actionの実行ごとに計測を開始する
+  const auto angle_effort_start =
+    std::chrono::steady_clock::now();
+
+  // angle関節かどうかを判定
+  auto is_angle_joint = [](const std::string & name)
+  {
+    return name.find("angle") != std::string::npos;
+  };
 
   // 動作開始時の関節角度
   std::vector<double> initial_pos(n, 0.0);
@@ -469,6 +482,26 @@ void BulldozerBladeControl::execute(
 
       for (size_t i = 0; i < n; ++i)
       {
+        // angle関節は現在角度を使用せず、時間で到達判定する
+        if (ct == 2 && is_angle_joint(joints[i]))
+        {
+          err[i] = 0.0;
+
+          const double elapsed =
+            std::chrono::duration<double>(
+              std::chrono::steady_clock::now()
+              - angle_effort_start).count();
+
+          // 目標角度が0、または設定時間が経過したら到達扱い
+          if (std::fabs(gp[i]) < 1e-9 ||
+              elapsed >= angle_effort_duration_sec_)
+          {
+            effort_reached[i] = true;
+          }
+
+          continue;
+        }
+
         auto it =
           latest_pos_.find(joints[i]);
 
@@ -613,6 +646,34 @@ void BulldozerBladeControl::execute(
     {
       for (size_t i = 0; i < n; ++i)
       {
+        // angle関節は、目標角度の正負に応じて一定時間だけ指令する
+        if (is_angle_joint(joints[i]))
+        {
+          const double elapsed =
+            std::chrono::duration<double>(
+              std::chrono::steady_clock::now()
+              - angle_effort_start).count();
+
+          if (std::fabs(gp[i]) < 1e-9 ||
+              elapsed >= angle_effort_duration_sec_)
+          {
+            // 指令時間終了後はeffortを解除
+            cmd.effort[i] = 0.0;
+          }
+          else if (gp[i] > 0.0)
+          {
+            // 目標角度が正の場合
+            cmd.effort[i] = 100.0;
+          }
+          else
+          {
+            // 目標角度が負の場合
+            cmd.effort[i] = -100.0;
+          }
+
+          continue;
+        }
+
         // 目標角度を通過した関節には追加の制御入力を与えない
         if (effort_reached[i])
         {
