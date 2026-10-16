@@ -298,10 +298,33 @@ void BulldozerBladeControl::joint_state_callback(
 
   for (size_t i = 0; i < n; ++i)
   {
-    if (std::isfinite(msg->position[i]))
-    {
-      latest_pos_[msg->name[i]] =
-        msg->position[i];
+    const std::string & joint_name = msg->name[i];
+    const double position = msg->position[i];
+
+    if (!std::isfinite(position)) {
+      continue;
+    }
+
+    // 受信した関節名で現在角度を保存
+    latest_pos_[joint_name] = position;
+
+    // --------------------------------------------------------
+    // joint_states の関節名と指令側の関節名を対応させる
+    //
+    // joint_states       JointCmd
+    // --------------------------------
+    // lift          <-> lift_joint
+    // tilt          <-> tilt_joint
+    // angle         <-> angle_joint
+    // --------------------------------------------------------
+    if (joint_name == "lift") {
+      latest_pos_["lift_joint"] = position;
+    }
+    else if (joint_name == "tilt") {
+      latest_pos_["tilt_joint"] = position;
+    }
+    else if (joint_name == "angle") {
+      latest_pos_["angle_joint"] = position;
     }
   }
 }
@@ -371,6 +394,33 @@ void BulldozerBladeControl::execute(
 
   const size_t n =
     joints.size();
+
+  // ============================================================
+  // 目標値の範囲チェック
+  //
+  // goal_position <= -100 または goal_position >= 100 の関節は
+  // 制御対象外とし、指令値を0にする。
+  // ============================================================
+  std::vector<bool> disabled_joint(n, false);
+
+  // Position制御や最終指令でも範囲外の目標値を送らないようにする
+  std::vector<double> safe_goal_position = gp;
+
+  for (size_t i = 0; i < n; ++i)
+  {
+    if (gp[i] <= -100.0 || gp[i] >= 100.0)
+    {
+      disabled_joint[i] = true;
+      safe_goal_position[i] = 0.0;
+
+      RCLCPP_WARN(
+        this->get_logger(),
+        "Joint '%s' disabled: target=%.6f is outside allowed range. "
+        "Command will be 0.",
+        joints[i].c_str(),
+        gp[i]);
+    }
+  }
 
   // ============================================================
   // 新しいActionが来たら、まず現在の保持状態を解除
@@ -474,6 +524,11 @@ void BulldozerBladeControl::execute(
       n,
       0.0);
 
+    // 各関節の現在角度
+    std::vector<double> current_pos(
+      n,
+      0.0);
+
     bool all_seen =
       true;
 
@@ -482,6 +537,38 @@ void BulldozerBladeControl::execute(
 
       for (size_t i = 0; i < n; ++i)
       {
+
+        // ------------------------------------------------------
+        // 範囲外の目標値を受け取った関節は制御しない
+        // ------------------------------------------------------
+        if (disabled_joint[i])
+        {
+          err[i] = 0.0;
+          effort_reached[i] = true;
+
+          // Position制御では現在角度を送信するため、
+          // joint_statesから現在角度を取得する
+          if (ct == 0)
+          {
+            auto it = latest_pos_.find(joints[i]);
+
+            if (it == latest_pos_.end())
+            {
+              RCLCPP_WARN(
+                this->get_logger(),
+                "Joint NOT FOUND in joint_states: %s",
+                joints[i].c_str());
+
+              all_seen = false;
+              continue;
+            }
+
+            current_pos[i] = it->second;
+          }
+
+          // Velocity / Effort制御では、後段で指令値を0にする
+          continue;
+        }
         // angle関節は現在角度を使用せず、時間で到達判定する
         if (ct == 2 && is_angle_joint(joints[i]))
         {
@@ -521,40 +608,39 @@ void BulldozerBladeControl::execute(
         // 目標角度 - 現在角度
         // ------------------------------------------------------
         // 現在角度
-        const double current_pos = it->second;
+        current_pos[i] = it->second;
+
+        const double joint_current_pos = current_pos[i];
 
         // 初期角度を記録
         if (!initial_pos_seen[i])
         {
-          initial_pos[i] = current_pos;
+          initial_pos[i] = joint_current_pos;
           initial_pos_seen[i] = true;
         }
 
         // 目標角度 - 現在角度
-        err[i] = gp[i] - current_pos;
+        err[i] = gp[i] - joint_current_pos;
 
         // effort入力の場合、目標角度を通過したか判定
         if (ct == 2)
         {
           if (initial_pos[i] < gp[i])
           {
-            // 正方向に動作する場合
-            if (current_pos >= gp[i])
+            if (joint_current_pos >= gp[i])
             {
               effort_reached[i] = true;
             }
           }
           else if (initial_pos[i] > gp[i])
           {
-            // 負方向に動作する場合
-            if (current_pos <= gp[i])
+            if (joint_current_pos <= gp[i])
             {
               effort_reached[i] = true;
             }
           }
           else
           {
-            // 初期角度が目標角度と同じ場合
             effort_reached[i] = true;
           }
         }
@@ -608,8 +694,15 @@ void BulldozerBladeControl::execute(
     {
       for (size_t i = 0; i < n; ++i)
       {
-        cmd.position[i] =
-          gp[i];
+        if (disabled_joint[i])
+        {
+          // 範囲外の目標値の場合は現在角度を送信する
+          cmd.position[i] = current_pos[i];
+          continue;
+        }
+
+        // 通常の関節は目標角度を送信する
+        cmd.position[i] = gp[i];
       }
     }
 
@@ -622,19 +715,26 @@ void BulldozerBladeControl::execute(
     {
       for (size_t i = 0; i < n; ++i)
       {
-        double velocity =
-          velocity_kp_ * err[i];
+        // 範囲外の目標値を受け取った関節は制御しない
+        if (disabled_joint[i])
+        {
+          cmd.velocity[i] = 0.0;
+          continue;
+        }
 
-        velocity =
-          std::clamp(
-            velocity,
-            -max_velocity_,
-            max_velocity_);
+        // 目標角度との差から速度を計算
+        double velocity = velocity_kp_ * err[i];
 
-        cmd.velocity[i] =
-          velocity;
+        // 最大速度を制限
+        velocity = std::clamp(
+          velocity,
+          -max_velocity_,
+          max_velocity_);
+
+        cmd.velocity[i] = velocity;
       }
     }
+
 
     // ----------------------------------------------------------
     // Effort control
@@ -646,7 +746,19 @@ void BulldozerBladeControl::execute(
     {
       for (size_t i = 0; i < n; ++i)
       {
-        // angle関節は、目標角度の正負に応じて一定時間だけ指令する
+        // ------------------------------------------------------
+        // 範囲外の目標値を受け取った関節は制御しない
+        // ------------------------------------------------------
+        if (disabled_joint[i])
+        {
+          cmd.effort[i] = 0.0;
+          continue;
+        }
+
+        // ------------------------------------------------------
+        // angle関節は目標角度の正負に応じて
+        // 一定時間だけeffortを指令する
+        // ------------------------------------------------------
         if (is_angle_joint(joints[i]))
         {
           const double elapsed =
@@ -657,34 +769,31 @@ void BulldozerBladeControl::execute(
           if (std::fabs(gp[i]) < 1e-9 ||
               elapsed >= angle_effort_duration_sec_)
           {
-            // 指令時間終了後はeffortを解除
             cmd.effort[i] = 0.0;
           }
           else if (gp[i] > 0.0)
           {
-            // 目標角度が正の場合
             cmd.effort[i] = 100.0;
           }
           else
           {
-            // 目標角度が負の場合
             cmd.effort[i] = -100.0;
           }
 
           continue;
         }
 
-        // 目標角度を通過した関節には追加の制御入力を与えない
+        // ------------------------------------------------------
+        // angle以外の関節は従来どおり制御
+        // ------------------------------------------------------
         if (effort_reached[i])
         {
           cmd.effort[i] = 0.0;
           continue;
         }
 
-        // 角度誤差に比例してeffortを計算
         double effort = effort_kp_ * err[i];
 
-        // 絶対値を50～100に制限
         if (effort > 0.0)
         {
           effort = std::clamp(effort, 50.0, 100.0);
@@ -695,13 +804,14 @@ void BulldozerBladeControl::execute(
         }
         else
         {
-          // 誤差が完全に0の場合
           effort = 0.0;
         }
 
         cmd.effort[i] = effort;
       }
     }
+    
+
 
     // ----------------------------------------------------------
     // 不正なcontrol_type
@@ -818,7 +928,7 @@ void BulldozerBladeControl::execute(
             if (ct == 0)
             {
               // position control
-              hold_cmd_.position = gp;
+              hold_cmd_.position = cmd.position;
               hold_cmd_.velocity.assign(n, 0.0);
               hold_cmd_.effort.assign(n, 0.0);
             }
@@ -924,7 +1034,7 @@ void BulldozerBladeControl::execute(
             //
             // positionの場合は目標姿勢をもう一度送る。
             // ------------------------------------------------------
-            final_cmd.position = gp;
+            final_cmd.position = cmd.position;
           }
           else if (ct == 1)
           {
