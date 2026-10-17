@@ -47,9 +47,6 @@ BulldozerBladeControl::BulldozerBladeControl()
 
   max_effort_ = this->declare_parameter<double>("max_effort", 1.0);
 
-  // angle関節にeffortを指令する時間 [s]
-  angle_effort_duration_sec_ = this->declare_parameter<double>("angle_effort_duration_sec", 3.0);
-
 
   // ============================================================
   // Publisher
@@ -581,7 +578,7 @@ void BulldozerBladeControl::execute(
 
           // 目標角度が0、または設定時間が経過したら到達扱い
           if (std::fabs(gp[i]) < 1e-9 ||
-              elapsed >= angle_effort_duration_sec_)
+              elapsed >= std::fabs(gp[i]))
           {
             effort_reached[i] = true;
           }
@@ -766,8 +763,9 @@ void BulldozerBladeControl::execute(
               std::chrono::steady_clock::now()
               - angle_effort_start).count();
 
-          if (std::fabs(gp[i]) < 1e-9 ||
-              elapsed >= angle_effort_duration_sec_)
+          const double duration = std::fabs(gp[i]);
+
+          if (duration < 1e-9 || elapsed >= duration)
           {
             cmd.effort[i] = 0.0;
           }

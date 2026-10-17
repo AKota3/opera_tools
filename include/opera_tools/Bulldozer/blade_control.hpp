@@ -92,9 +92,6 @@ private:
   double tolerance_{0.02};
   double timeout_sec_{15.0};
   double loop_hz_{20.0};
-
-  // angle関節にeffortを指令する時間 [s]
-  double angle_effort_duration_sec_{3.0};
 };
 
 #endif
